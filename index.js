@@ -55,7 +55,7 @@ const swaggerOptions = {
       version: "1.0.0",
       description: "API documentation using Swagger",
     },
-    servers: [{ url: "https://risola-backend.onrender.com" }],
+       servers: [{ url: "https://backend-rislola.onrender.com" }]
   },
   apis: ["./routes/*.js"],
 };
