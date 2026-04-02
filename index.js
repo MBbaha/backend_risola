@@ -18,7 +18,7 @@ const allowedOrigins = [
 const corsOptions = {
   origin: function (origin, callback) {
     if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true); // Ruxsat berilgan
+      callback(null, true);
     } else {
       callback(new Error("CORS xatolik: Ruxsat etilmagan domen"));
     }
@@ -27,22 +27,23 @@ const corsOptions = {
   credentials: true,
 };
 
-// ✅ CORS middleware-ni qo'llash (bu yerda)
 app.use(cors(corsOptions));
-
-// JSON formatida body qabul qilish uchun middleware
 app.use(express.json());
 
-// ✅ MongoDB ulanish
+// ✅ MongoDB ulanish - process.exit(1) olib tashlandi
 async function connectToDB() {
   try {
-    await connect(process.env.MONGODB_URL);
+    await connect(process.env.MONGODB_URL, {
+      serverSelectionTimeoutMS: 30000,
+      socketTimeoutMS: 45000,
+    });
     console.log("✅ MongoDB connected");
   } catch (err) {
     console.error("❌ MongoDB connection error:", err.message);
-    process.exit(1);
+    // process.exit(1) - olib tashlandi, server ishlayveradi
   }
 }
+
 connectToDB();
 
 // ✅ Swagger sozlamalari
@@ -58,6 +59,7 @@ const swaggerOptions = {
   },
   apis: ["./routes/*.js"],
 };
+
 const swaggerDocs = swaggerJsdoc(swaggerOptions);
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerDocs));
 
@@ -71,7 +73,7 @@ app.use("/api/users", userRoute);
 app.use("/api/userKvitansiya", usersKvitansiyaRoute);
 
 // ✅ Serverni ishga tushirish
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
