@@ -4,6 +4,7 @@ const {
   getUsers,
   updateUser,
   deleteUser,
+  getLastTartibRaqam,
 } = require("../controllers/userKvitansiya.controller");
 
 const usersKvitansiya = Router();
@@ -143,5 +144,9 @@ usersKvitansiya.put("/updateUsersById/:id", updateUser);
  *         description: Server xatosi
  */
 usersKvitansiya.delete("/delete/:id", deleteUser);
+
+
+
+usersKvitansiya.get("/lastNumber", getLastTartibRaqam);
 
 module.exports = usersKvitansiya;
