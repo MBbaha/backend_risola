@@ -1,9 +1,10 @@
 const { UserKvitansiya } = require("../models/userKvitansiyaSchema");
 
-// 1. Register (yangi foydalanuvchi kvitansiya qo‘shish)
+// 1. Register
 const postRegister = async (req, res) => {
   try {
-    const {fullname,
+    const {
+      fullname,
       phonenumber,
       sana,
       summa,
@@ -13,12 +14,10 @@ const postRegister = async (req, res) => {
       amountroom,
       dollar,
       location,
+      isactive,
+    } = req.body;
 
-      isactive, } = req.body;
-
-    // Tekshir: foydalanuvchi allaqachon mavjudmi
-    const existingUser = await UserKvitansiya.findOne({fullname,tartibraqam,  phonenumber, });
-
+    const existingUser = await UserKvitansiya.findOne({ fullname, tartibraqam, phonenumber });
     if (existingUser) {
       return res.status(400).json({
         success: false,
@@ -41,7 +40,6 @@ const postRegister = async (req, res) => {
     });
 
     await newUser.save();
-
     res.status(201).json({
       success: true,
       message: "Foydalanuvchi kvitansiyasi muvaffaqiyatli qo'shildi.",
@@ -51,7 +49,7 @@ const postRegister = async (req, res) => {
     console.error("❌ Xatolik:", error);
     res.status(500).json({
       success: false,
-      message: "Server xatosi: Qo‘shishda muammo yuz berdi.",
+      message: "Server xatosi: Qo'shishda muammo yuz berdi.",
     });
   }
 };
@@ -112,7 +110,6 @@ const deleteUser = async (req, res) => {
     const { id } = req.params;
 
     const deletedUser = await UserKvitansiya.findByIdAndDelete(id);
-
     if (!deletedUser) {
       return res.status(404).json({
         success: false,
@@ -128,7 +125,7 @@ const deleteUser = async (req, res) => {
     console.error("❌ Xatolik:", error);
     res.status(500).json({
       success: false,
-      message: "O‘chirishda server xatosi yuz berdi.",
+      message: "O'chirishda server xatosi yuz berdi.",
     });
   }
 };
@@ -140,16 +137,15 @@ const getLastTartibRaqam = async (req, res) => {
     const lastNum = last ? parseInt(last.tartibraqam) || 0 : 0;
     res.status(200).json({ success: true, nextNumber: lastNum + 1 });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Xatolik' });
+    console.error("❌ Xatolik:", error);
+    res.status(500).json({ success: false, message: "Xatolik" });
   }
 };
-
-module.exports = { postRegister, getUsers, updateUser, deleteUser, getLastTartibRaqam };
-
 
 module.exports = {
   postRegister,
   getUsers,
   updateUser,
   deleteUser,
+  getLastTartibRaqam,
 };
