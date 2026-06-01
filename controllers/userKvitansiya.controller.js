@@ -133,6 +133,20 @@ const deleteUser = async (req, res) => {
   }
 };
 
+// 5. Oxirgi tartib raqamni olish
+const getLastTartibRaqam = async (req, res) => {
+  try {
+    const last = await UserKvitansiya.findOne().sort({ createdAt: -1 });
+    const lastNum = last ? parseInt(last.tartibraqam) || 0 : 0;
+    res.status(200).json({ success: true, nextNumber: lastNum + 1 });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Xatolik' });
+  }
+};
+
+module.exports = { postRegister, getUsers, updateUser, deleteUser, getLastTartibRaqam };
+
+
 module.exports = {
   postRegister,
   getUsers,
