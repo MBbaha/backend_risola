@@ -30,7 +30,7 @@ app.get("/", (req, res) => {
 });
 
 // ✅ ODB
-connect(process.env.MONGODB_URI)
+connect(process.env.MONGODB_URL)
   .then(() => console.log("MongoDB connected"))
   .catch((err) => console.log(err));
 
