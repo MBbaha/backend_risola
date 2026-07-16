@@ -29,8 +29,8 @@ app.get("/", (req, res) => {
   res.send("Backend working");
 });
 
-// ✅ MONGODB
-connect(process.env.MONGODB_URL)
+// ✅ ODB
+connect(process.env.MONGODB_URI)
   .then(() => console.log("MongoDB connected"))
   .catch((err) => console.log(err));
 
