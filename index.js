@@ -23,6 +23,7 @@ const userRoute = require("./routes/user.route");
 const usersKvitansiyaRoute = require("./routes/userKvitansiya.route");
 app.use("/api/users", userRoute);
 app.use("/api/userKvitansiya", usersKvitansiyaRoute);
+app.use("/api/kurs", require("./routes/kurs")); // ✅ YANGI: Kapitalbank dollar kursi
 
 // ✅ TEST
 app.get("/", (req, res) => {
