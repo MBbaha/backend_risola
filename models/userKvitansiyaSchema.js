@@ -7,7 +7,7 @@ const UserKvitansiyaSchema = new Schema(
     sana: { type: String, required: true },
     summa: { type: String, required: true },                     // so'mda
     tartibraqam: { type: String },
-    kvitansiyakod: { type: String, required: true, trim: true }, // Chek ID
+    kvitansiyakod: { type: String, trim: true, default: "" },     // Chek ID — faqat "Ofis uchun" belgilanganda
     kassir: { type: String, required: true },
     qoshimchatolov: { type: String, default: "0" },
     amountpeople: { type: String, required: true },
