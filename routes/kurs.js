@@ -1,51 +1,61 @@
-// routes/kurs.js — Dollar kursi (Kapitalbank + Markaziy bank zaxirasi)
+// routes/kurs.js — Dollar kursi
 //
-// Ulash (server.js / app.js ichida):
-//   app.use('/api/kurs', require('./routes/kurs'));
+// index.js da ulangan:  app.use("/api/kurs", require("./routes/kurs"));
 //
-// GET /api/kurs        -> keshdan (10 daqiqa) yoki yangidan
-// GET /api/kurs?yangi=1 -> keshni chetlab, qaytadan olish
+// GET /api/kurs          -> keshdan (10 daqiqa) yoki yangidan
+// GET /api/kurs?yangi=1  -> keshni chetlab, qaytadan olish
+//
+// Manbalar (bir vaqtda so'raladi, qaysi biri javob bersa — o'sha ishlatiladi):
+//   1. Kapitalbank sayti  — sotib olish / sotish kursi.
+//      Eslatma: bank sayti chet eldagi serverlardan (Railway) kelgan so'rovlarni
+//      403 bilan bloklashi mumkin. Bank Kapital API (korporativ) manzilini bersa,
+//      Railway Variables'ga KAPITALBANK_KURS_URL qilib yozing.
+//   2. O'zbekiston Markaziy banki (cbu.uz) — rasmiy kurs.
+//   3. ExchangeRate-API (open.er-api.com) — kunlik xalqaro kurs, zaxira uchun.
 //
 // Javob namunasi:
 // {
 //   ok: true,
 //   kapitalbank: { buy: 12010, sell: 12100 } | null,
-//   cb: 12050.37 | null,          // O'zbekiston Markaziy banki kursi
-//   cbSana: "30.10.2026" | null,
-//   manba: "Kapitalbank" | "Markaziy bank",
-//   olingan: "2026-10-30T06:20:00.000Z",
-//   eskirgan: false               // true = manbalar ochilmadi, oxirgi saqlangan kurs qaytarildi
+//   cb: 12050.37 | null,        cbSana: "30.10.2026" | null,
+//   xalqaro: 11983.75 | null,   xalqaroSana: "29.10.2026" | null,
+//   manba: "Kapitalbank" | "Markaziy bank" | "Xalqaro kurs",
+//   xatolar: { kapitalbank: "HTTP 403", ... },   // diagnostika uchun
+//   olingan: "2026-10-30T08:50:00.000Z",
+//   eskirgan: false
 // }
-//
-// Node 18+ kerak (global fetch). Railway'da odatda shunday.
 
 const express = require('express');
 const router = express.Router();
 
-// Kapitalbank'ning ochiq kurs API'si yo'q, shuning uchun ularning rasmiy
-// "Valyutalar kursi" sahifasidan o'qiladi. Agar bank sizga Kapital API
-// (korporativ) orqali boshqa manzil bersa, uni Railway'da shu o'zgaruvchiga yozing.
 const KAPITAL_URL =
   process.env.KAPITALBANK_KURS_URL || 'https://kapitalbank.uz/uz/services/exchange-rates/';
-const CBU_URL = 'https://cbu.uz/uz/arkhiv-kursov-valyut/json/USD/';
+const CBU_URLS = [
+  'https://cbu.uz/uz/arkhiv-kursov-valyut/json/USD/',
+  'https://cbu.uz/ru/arkhiv-kursov-valyut/json/USD/',
+];
+const XALQARO_URL = 'https://open.er-api.com/v6/latest/USD';
 const CACHE_MS = 10 * 60 * 1000;
 
 let cache = null; // { data, vaqt }
 
-async function fetchText(url, ms = 8000) {
+async function fetchText(url, ms) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms);
   try {
     const res = await fetch(url, {
       signal: ctrl.signal,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) RisolaKvitansiya/1.0',
+        'User-Agent': 'RisolaKvitansiya/1.0 (+https://risolafrontend-production.up.railway.app)',
         Accept: 'text/html,application/json;q=0.9,*/*;q=0.8',
         'Accept-Language': 'uz,ru;q=0.8,en;q=0.6',
       },
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.text();
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error(`${ms / 1000} soniyada javob bermadi`);
+    throw err;
   } finally {
     clearTimeout(timer);
   }
@@ -53,26 +63,21 @@ async function fetchText(url, ms = 8000) {
 
 const toNum = s => parseFloat(String(s).replace(/[\s ]/g, '').replace(',', '.'));
 const isPlausible = n => Number.isFinite(n) && n > 5000 && n < 50000;
-
-// "12 010", "12010", "12 010.00", "12010,50" kabi sonlarni topadi
 const NUM_RE = /(?:\d{1,3}(?:[  ]\d{3})+|\d{4,6})(?:[.,]\d{1,2})?/g;
+const pad = n => String(n).padStart(2, '0');
+const ddmmyyyy = d => `${pad(d.getUTCDate())}.${pad(d.getUTCMonth() + 1)}.${d.getUTCFullYear()}`;
 
 function htmlToText(html) {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&#160;/g, ' ')
+    .replace(/&nbsp;|&#160;/g, ' ')
     .replace(/\s+/g, ' ');
 }
 
-// Kapitalbank sahifasidan USD sotib olish / sotish kursini ajratib oladi.
-// Ehtiyot choralari: ikkala son ham 5 000–50 000 oralig'ida bo'lishi,
-// sotib olish <= sotish va farq 5% dan oshmasligi shart. Aks holda null
-// qaytariladi va Markaziy bank kursi ishlatiladi (noto'g'ri son chiqmaydi).
+// Kapitalbank: USD sotib olish / sotish. Shubhali bo'lsa null (noto'g'ri son chiqmaydi).
 function parseKapitalbank(body) {
-  // 1) Agar manzil JSON qaytarsa (masalan, Kapital API)
   try {
     const j = JSON.parse(body);
     const list = Array.isArray(j) ? j : j.data || j.rates || j.items || [];
@@ -82,44 +87,55 @@ function parseKapitalbank(body) {
       const sell = toNum(usd.sell ?? usd.sale ?? usd.sellRate ?? usd.sotish);
       if (isPlausible(buy) && isPlausible(sell) && buy <= sell) return { buy, sell };
     }
-  } catch (_) { /* HTML — davom etamiz */ }
+  } catch (_) { /* HTML */ }
 
-  // 2) HTML sahifa: "USD" yozuvidan keyingi birinchi ikki mos son
   const text = htmlToText(body);
   const re = /\bUSD\b|AQSH dollari|АҚШ доллари|Доллар США|US Dollar/gi;
   let m;
   while ((m = re.exec(text)) !== null) {
-    const chunk = text.slice(m.index, m.index + 260);
-    const nums = (chunk.match(NUM_RE) || []).map(toNum).filter(isPlausible);
-    // Yonma-yon turgan birinchi mos juftlik (oldida MB kursi bo'lsa ham topadi)
+    const nums = (text.slice(m.index, m.index + 260).match(NUM_RE) || []).map(toNum).filter(isPlausible);
     for (let i = 0; i + 1 < nums.length; i++) {
       const buy = nums[i], sell = nums[i + 1];
       if (buy <= sell && (sell - buy) / sell <= 0.05) return { buy, sell };
     }
   }
-  return null;
+  throw new Error('sahifada USD kursi topilmadi');
 }
 
 function parseCbu(body) {
   const arr = JSON.parse(body);
   const usd = Array.isArray(arr) ? arr.find(r => r.Ccy === 'USD') : null;
-  if (!usd) return null;
-  const rate = toNum(usd.Rate);
-  return isPlausible(rate) ? { rate, sana: usd.Date || null } : null;
+  const rate = usd ? toNum(usd.Rate) : NaN;
+  if (!isPlausible(rate)) throw new Error('USD topilmadi');
+  return { rate, sana: usd.Date || null };
+}
+
+function parseXalqaro(body) {
+  const j = JSON.parse(body);
+  const rate = j && j.result === 'success' && j.rates ? Number(j.rates.UZS) : NaN;
+  if (!isPlausible(rate)) throw new Error('UZS topilmadi');
+  const sana = j.time_last_update_unix ? ddmmyyyy(new Date(j.time_last_update_unix * 1000)) : null;
+  return { rate: Math.round(rate * 100) / 100, sana };
 }
 
 async function olish() {
-  const [kb, cbu] = await Promise.allSettled([
-    fetchText(KAPITAL_URL).then(parseKapitalbank),
-    fetchText(CBU_URL).then(parseCbu),
+  const [kb, cbu, xq] = await Promise.allSettled([
+    fetchText(KAPITAL_URL, 8000).then(parseKapitalbank),
+    // ikki manzildan qaysi biri birinchi javob bersa
+    Promise.any(CBU_URLS.map(u => fetchText(u, 12000).then(parseCbu)))
+      .catch(e => { throw (e.errors && e.errors[0]) || e; }),
+    fetchText(XALQARO_URL, 10000).then(parseXalqaro),
   ]);
 
-  const kapitalbank = kb.status === 'fulfilled' ? kb.value : null;
-  const cb = cbu.status === 'fulfilled' ? cbu.value : null;
+  const val = r => (r.status === 'fulfilled' ? r.value : null);
+  const err = r => (r.status === 'rejected' ? (r.reason && r.reason.message) || 'xato' : undefined);
 
-  if (!kapitalbank && !cb) {
-    const sabab = [kb, cbu].map(r => (r.status === 'rejected' ? r.reason?.message : 'topilmadi')).join(' / ');
-    throw new Error(`Kurs olinmadi: ${sabab}`);
+  const kapitalbank = val(kb);
+  const cb = val(cbu);
+  const xalqaro = val(xq);
+
+  if (!kapitalbank && !cb && !xalqaro) {
+    throw new Error(`Kurs olinmadi: Kapitalbank — ${err(kb)}; Markaziy bank — ${err(cbu)}; Xalqaro — ${err(xq)}`);
   }
 
   return {
@@ -127,7 +143,10 @@ async function olish() {
     kapitalbank,
     cb: cb ? cb.rate : null,
     cbSana: cb ? cb.sana : null,
-    manba: kapitalbank ? 'Kapitalbank' : 'Markaziy bank',
+    xalqaro: xalqaro ? xalqaro.rate : null,
+    xalqaroSana: xalqaro ? xalqaro.sana : null,
+    manba: kapitalbank ? 'Kapitalbank' : cb ? 'Markaziy bank' : 'Xalqaro kurs',
+    xatolar: { kapitalbank: err(kb), cb: err(cbu), xalqaro: err(xq) },
     olingan: new Date().toISOString(),
     eskirgan: false,
   };
@@ -151,3 +170,4 @@ router.get('/', async (req, res) => {
 module.exports = router;
 module.exports.parseKapitalbank = parseKapitalbank; // test uchun
 module.exports.parseCbu = parseCbu;
+module.exports.parseXalqaro = parseXalqaro;
