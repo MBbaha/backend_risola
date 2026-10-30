@@ -15,7 +15,22 @@ const postRegister = async (req, res) => {
       dollar,
       location,
       isactive,
+      kvitansiyakod, // ✅ YANGI: Chek ID
+      kassir,        // ✅ YANGI
+      kurs,          // ✅ YANGI: ishlatilgan dollar kursi
+      kursmanba,     // ✅ YANGI: kurs manbasi (Kapitalbank / Markaziy bank / Qo'lda)
     } = req.body;
+
+    // ✅ YANGI: bir xil Chek ID ikki marta kiritilmasin
+    if (kvitansiyakod) {
+      const sameChekId = await UserKvitansiya.findOne({ kvitansiyakod });
+      if (sameChekId) {
+        return res.status(400).json({
+          success: false,
+          message: `Bu Chek ID (${kvitansiyakod}) allaqachon kiritilgan.`,
+        });
+      }
+    }
 
     const existingUser = await UserKvitansiya.findOne({ fullname, tartibraqam, phonenumber });
     if (existingUser) {
@@ -37,6 +52,10 @@ const postRegister = async (req, res) => {
       location,
       dollar,
       isactive,
+      kvitansiyakod, // ✅ YANGI
+      kassir,        // ✅ YANGI
+      kurs,          // ✅ YANGI
+      kursmanba,     // ✅ YANGI
     });
 
     await newUser.save();
@@ -47,6 +66,13 @@ const postRegister = async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Xatolik:", error);
+    // ✅ YANGI: maydon to'ldirilmagan bo'lsa, qaysi biri ekanini aniq aytadi
+    if (error.name === "ValidationError") {
+      return res.status(400).json({
+        success: false,
+        message: "To'ldirilmagan maydon: " + Object.keys(error.errors).join(", "),
+      });
+    }
     res.status(500).json({
       success: false,
       message: "Server xatosi: Qo'shishda muammo yuz berdi.",
